@@ -1,10 +1,49 @@
+#![feature(inline_const)]
+#![feature(const_type_id)]
+
 use std::path::Path;
 
 use image::buffer::ConvertBuffer;
 
+use std::any::{Any, TypeId};
+
 pub struct Scene {
     buffers: Vec<maligog::Buffer>,
     images: Vec<maligog::Image>,
+}
+
+fn convert_image_to_bgra8(
+    image: &gltf::image::Data,
+) -> image::ImageBuffer<image::Bgra<u8>, Vec<u8>> {
+    use image::DynamicImage;
+    let bgra8;
+
+    match image.format {
+        gltf::image::Format::R8G8B8 => {
+            let img =
+                image::RgbImage::from_vec(image.width, image.height, image.pixels.clone()).unwrap();
+            bgra8 = DynamicImage::ImageRgb8(img).into_bgra8();
+        }
+        gltf::image::Format::R8G8B8A8 => {
+            let img = image::ImageBuffer::from_vec(image.width, image.height, image.pixels.clone())
+                .unwrap();
+            bgra8 = DynamicImage::ImageRgba8(img).into_bgra8();
+        }
+        gltf::image::Format::B8G8R8 => {
+            let img = image::ImageBuffer::from_vec(image.width, image.height, image.pixels.clone())
+                .unwrap();
+            bgra8 = DynamicImage::ImageBgr8(img).into_bgra8();
+        }
+        gltf::image::Format::B8G8R8A8 => {
+            let img = image::ImageBuffer::from_vec(image.width, image.height, image.pixels.clone())
+                .unwrap();
+            bgra8 = DynamicImage::ImageBgra8(img).into_bgra8();
+        }
+        _ => {
+            unimplemented!()
+        }
+    };
+    bgra8
 }
 
 impl Scene {
@@ -27,54 +66,11 @@ impl Scene {
             })
             .collect::<Vec<_>>();
 
-        use image::DynamicImage;
         let images = gltf_images
             .iter()
             .map(|image| {
                 let mut format = maligog::Format::B8G8R8A8_UNORM;
-                let bgra8;
-                match image.format {
-                    gltf::image::Format::R8G8B8 => {
-                        let img = image::RgbImage::from_vec(
-                            image.width,
-                            image.height,
-                            image.pixels.clone(),
-                        )
-                        .unwrap();
-                        bgra8 = DynamicImage::ImageRgb8(img).into_bgra8();
-                    }
-                    gltf::image::Format::R8G8B8A8 => {
-                        let img = image::ImageBuffer::from_vec(
-                            image.width,
-                            image.height,
-                            image.pixels.clone(),
-                        )
-                        .unwrap();
-                        bgra8 = DynamicImage::ImageRgba8(img).into_bgra8();
-                    }
-                    gltf::image::Format::B8G8R8 => {
-                        let img = image::ImageBuffer::from_vec(
-                            image.width,
-                            image.height,
-                            image.pixels.clone(),
-                        )
-                        .unwrap();
-                        bgra8 = DynamicImage::ImageBgr8(img).into_bgra8();
-                    }
-                    gltf::image::Format::B8G8R8A8 => {
-                        let img = image::ImageBuffer::from_vec(
-                            image.width,
-                            image.height,
-                            image.pixels.clone(),
-                        )
-                        .unwrap();
-                        bgra8 = DynamicImage::ImageBgra8(img).into_bgra8();
-                    }
-                    _ => {
-                        unimplemented!()
-                    }
-                };
-
+                let bgra8 = convert_image_to_bgra8(image);
                 device.create_image_init(
                     Some("gltf texture"),
                     format,
