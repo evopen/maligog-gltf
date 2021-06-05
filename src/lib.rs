@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use image::buffer::ConvertBuffer;
+
 pub struct Scene {
     buffers: Vec<maligog::Buffer>,
     images: Vec<maligog::Image>,
@@ -25,16 +27,49 @@ impl Scene {
             })
             .collect::<Vec<_>>();
 
+        use image::DynamicImage;
         let images = gltf_images
             .iter()
             .map(|image| {
-                let format = match image.format {
-                    gltf::image::Format::R8 => maligog::Format::R8_UNORM,
-                    gltf::image::Format::R8G8 => maligog::Format::R8G8_UNORM,
-                    gltf::image::Format::R8G8B8 => maligog::Format::R8G8B8_UNORM,
-                    gltf::image::Format::R8G8B8A8 => maligog::Format::R8G8B8A8_UNORM,
-                    gltf::image::Format::B8G8R8 => maligog::Format::B8G8R8_UNORM,
-                    gltf::image::Format::B8G8R8A8 => maligog::Format::B8G8R8A8_UNORM,
+                let mut format = maligog::Format::B8G8R8A8_UNORM;
+                let bgra8;
+                match image.format {
+                    gltf::image::Format::R8G8B8 => {
+                        let img = image::RgbImage::from_vec(
+                            image.width,
+                            image.height,
+                            image.pixels.clone(),
+                        )
+                        .unwrap();
+                        bgra8 = DynamicImage::ImageRgb8(img).into_bgra8();
+                    }
+                    gltf::image::Format::R8G8B8A8 => {
+                        let img = image::ImageBuffer::from_vec(
+                            image.width,
+                            image.height,
+                            image.pixels.clone(),
+                        )
+                        .unwrap();
+                        bgra8 = DynamicImage::ImageRgba8(img).into_bgra8();
+                    }
+                    gltf::image::Format::B8G8R8 => {
+                        let img = image::ImageBuffer::from_vec(
+                            image.width,
+                            image.height,
+                            image.pixels.clone(),
+                        )
+                        .unwrap();
+                        bgra8 = DynamicImage::ImageBgr8(img).into_bgra8();
+                    }
+                    gltf::image::Format::B8G8R8A8 => {
+                        let img = image::ImageBuffer::from_vec(
+                            image.width,
+                            image.height,
+                            image.pixels.clone(),
+                        )
+                        .unwrap();
+                        bgra8 = DynamicImage::ImageBgra8(img).into_bgra8();
+                    }
                     _ => {
                         unimplemented!()
                     }
@@ -47,7 +82,7 @@ impl Scene {
                     image.height,
                     maligog::ImageUsageFlags::SAMPLED,
                     maligog::MemoryLocation::GpuOnly,
-                    &image.pixels,
+                    &bgra8.as_raw(),
                 )
             })
             .collect::<Vec<_>>();
@@ -59,6 +94,10 @@ impl Scene {
 #[test]
 fn test_general() {
     dotenv::dotenv().ok();
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Trace)
+        .try_init()
+        .ok();
     let entry = maligog::Entry::new().unwrap();
     let mut required_extensions = maligog::Surface::required_extensions();
     required_extensions.push(maligog::name::instance::Extension::ExtDebugUtils);
@@ -69,9 +108,25 @@ fn test_general() {
         .unwrap()
         .to_owned();
     let device = pdevice.create_device();
-    let scene = Scene::from_file(
-        Some("test scene"),
-        &device,
-        std::env::var("GLTF_TEST_FILE").unwrap(),
-    );
+    let gltf_test_cases = vec![
+        "2.0/Box/glTF/Box.gltf",
+        "2.0/BoxInterleaved/glTF/BoxInterleaved.gltf",
+        "2.0/Duck/glTF/Duck.gltf",
+        "2.0/BoomBox/glTF/BoomBox.gltf",
+        "2.0/Sponza/glTF/Sponza.gltf",
+        "2.0/GearboxAssy/glTF/GearboxAssy.gltf",
+        "2.0/AntiqueCamera/glTF/AntiqueCamera.gltf",
+        "2.0/DamagedHelmet/glTF/DamagedHelmet.gltf",
+        "2.0/SciFiHelmet/glTF/SciFiHelmet.gltf",
+        "2.0/Suzanne/glTF/Suzanne.gltf",
+        "2.0/WaterBottle/glTF/WaterBottle.gltf",
+        "2.0/2CylinderEngine/glTF/2CylinderEngine.gltf",
+        "2.0/Buggy/glTF/Buggy.gltf",
+    ];
+    for case in gltf_test_cases {
+        log::debug!("loading {}", case);
+        let gltf_path =
+            std::path::PathBuf::from(std::env::var("GLTF_SAMPLE_PATH").unwrap()).join(case);
+        let scene = Scene::from_file(Some("test scene"), &device, gltf_path);
+    }
 }
