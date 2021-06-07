@@ -99,6 +99,7 @@ fn process_node(
             &device,
             &blases.get(mesh.index()).unwrap(),
             &glam::Mat4::from_cols_array_2d(&node.transform().matrix()),
+            0,
         ));
     }
     instances.extend(
@@ -117,12 +118,12 @@ fn process_node(
     instances
 }
 
-fn create_BLASes(
+fn create_blases(
     device: &maligog::Device,
     gltf_meshes: gltf::iter::Meshes,
     buffers: &[maligog::Buffer],
 ) -> Vec<maligog::BottomAccelerationStructure> {
-    let mut BLASes = Vec::new();
+    let mut blases = Vec::new();
     for mesh in gltf_meshes {
         let geometries: Vec<maligog::TriangleGeometry> = mesh
             .primitives()
@@ -174,9 +175,9 @@ fn create_BLASes(
             })
             .collect();
 
-        BLASes.push(device.create_bottom_level_acceleration_structure(mesh.name(), &geometries));
+        blases.push(device.create_bottom_level_acceleration_structure(mesh.name(), &geometries));
     }
-    BLASes
+    blases
 }
 
 impl Scene {
@@ -190,7 +191,7 @@ impl Scene {
 
         let buffers = create_device_buffers(device, &gltf_buffers);
         let images = create_device_images(device, &gltf_images);
-        let blases = create_BLASes(device, doc.meshes(), &buffers);
+        let blases = create_blases(device, doc.meshes(), &buffers);
         let mut blas_instances = scene
             .nodes()
             .map(|n| {
