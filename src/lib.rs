@@ -219,6 +219,10 @@ impl Scene {
             tlas,
         }
     }
+
+    pub fn tlas(&self) -> &maligog::TopAccelerationStructure {
+        &self.tlas
+    }
 }
 
 #[test]
