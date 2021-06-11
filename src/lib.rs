@@ -118,6 +118,46 @@ fn process_node(
     instances
 }
 
+fn create_samlers(device: &maligog::Device, gltf_samplers: gltf::iter::Samplers) {
+    let mut samplers = vec![];
+    for sampler in gltf_samplers {
+        let mag_filter = match sampler.mag_filter().unwrap() {
+            gltf::texture::MagFilter::Nearest => maligog::Filter::NEAREST,
+            gltf::texture::MagFilter::Linear => maligog::Filter::LINEAR,
+        };
+        let min_filter = match sampler.min_filter().unwrap() {
+            gltf::texture::MinFilter::Nearest => maligog::Filter::NEAREST,
+            gltf::texture::MinFilter::Linear => maligog::Filter::LINEAR,
+            gltf::texture::MinFilter::NearestMipmapNearest => maligog::Filter::NEAREST,
+            gltf::texture::MinFilter::LinearMipmapNearest => maligog::Filter::LINEAR,
+            gltf::texture::MinFilter::NearestMipmapLinear => maligog::Filter::NEAREST,
+            gltf::texture::MinFilter::LinearMipmapLinear => maligog::Filter::LINEAR,
+        };
+        let address_mode_u = match sampler.wrap_s() {
+            gltf::texture::WrappingMode::ClampToEdge => maligog::SamplerAddressMode::CLAMP_TO_EDGE,
+            gltf::texture::WrappingMode::MirroredRepeat => {
+                maligog::SamplerAddressMode::MIRRORED_REPEAT
+            }
+            gltf::texture::WrappingMode::Repeat => maligog::SamplerAddressMode::REPEAT,
+        };
+        let address_mode_v = match sampler.wrap_t() {
+            gltf::texture::WrappingMode::ClampToEdge => maligog::SamplerAddressMode::CLAMP_TO_EDGE,
+            gltf::texture::WrappingMode::MirroredRepeat => {
+                maligog::SamplerAddressMode::MIRRORED_REPEAT
+            }
+            gltf::texture::WrappingMode::Repeat => maligog::SamplerAddressMode::REPEAT,
+        };
+        samplers.push(device.create_sampler(
+            sampler.name(),
+            mag_filter,
+            min_filter,
+            address_mode_u,
+            address_mode_v,
+        ));
+    }
+    samplers
+}
+
 fn create_blases(
     device: &maligog::Device,
     gltf_meshes: gltf::iter::Meshes,
@@ -192,6 +232,7 @@ impl Scene {
         let buffers = create_device_buffers(device, &gltf_buffers);
         let images = create_device_images(device, &gltf_images);
         let blases = create_blases(device, doc.meshes(), &buffers);
+        let samplers = create_samlers(device, doc.samplers());
         let mut blas_instances = scene
             .nodes()
             .map(|n| {
