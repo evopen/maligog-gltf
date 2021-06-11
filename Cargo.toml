@@ -17,3 +17,7 @@ glam = "0.15"
 [dev-dependencies]
 dotenv = "0.15.0"
 env_logger = "0.8.3"
+
+
+[profile.test]
+opt-level = 3

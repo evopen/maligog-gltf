@@ -1,6 +1,8 @@
 #![feature(inline_const)]
 #![feature(const_type_id)]
 
+pub use gltf;
+
 use std::convert::TryInto;
 use std::path::Path;
 
@@ -12,6 +14,7 @@ pub struct Scene {
     buffers: Vec<maligog::Buffer>,
     images: Vec<maligog::Image>,
     tlas: maligog::TopAccelerationStructure,
+    samplers: Vec<maligog::Sampler>,
 }
 
 fn convert_image_to_bgra8(
@@ -118,21 +121,34 @@ fn process_node(
     instances
 }
 
-fn create_samlers(device: &maligog::Device, gltf_samplers: gltf::iter::Samplers) {
+fn create_samlers(
+    device: &maligog::Device,
+    gltf_samplers: gltf::iter::Samplers,
+) -> Vec<maligog::Sampler> {
     let mut samplers = vec![];
     for sampler in gltf_samplers {
-        let mag_filter = match sampler.mag_filter().unwrap() {
-            gltf::texture::MagFilter::Nearest => maligog::Filter::NEAREST,
-            gltf::texture::MagFilter::Linear => maligog::Filter::LINEAR,
+        let mag_filter = if let Some(mag_filter) = sampler.mag_filter() {
+            match mag_filter {
+                gltf::texture::MagFilter::Nearest => maligog::Filter::NEAREST,
+                gltf::texture::MagFilter::Linear => maligog::Filter::LINEAR,
+            }
+        } else {
+            maligog::Filter::LINEAR
         };
-        let min_filter = match sampler.min_filter().unwrap() {
-            gltf::texture::MinFilter::Nearest => maligog::Filter::NEAREST,
-            gltf::texture::MinFilter::Linear => maligog::Filter::LINEAR,
-            gltf::texture::MinFilter::NearestMipmapNearest => maligog::Filter::NEAREST,
-            gltf::texture::MinFilter::LinearMipmapNearest => maligog::Filter::LINEAR,
-            gltf::texture::MinFilter::NearestMipmapLinear => maligog::Filter::NEAREST,
-            gltf::texture::MinFilter::LinearMipmapLinear => maligog::Filter::LINEAR,
+
+        let min_filter = if let Some(min_filter) = sampler.min_filter() {
+            match min_filter {
+                gltf::texture::MinFilter::Nearest => maligog::Filter::NEAREST,
+                gltf::texture::MinFilter::Linear => maligog::Filter::LINEAR,
+                gltf::texture::MinFilter::NearestMipmapNearest => maligog::Filter::NEAREST,
+                gltf::texture::MinFilter::LinearMipmapNearest => maligog::Filter::LINEAR,
+                gltf::texture::MinFilter::NearestMipmapLinear => maligog::Filter::NEAREST,
+                gltf::texture::MinFilter::LinearMipmapLinear => maligog::Filter::LINEAR,
+            }
+        } else {
+            maligog::Filter::LINEAR
         };
+
         let address_mode_u = match sampler.wrap_s() {
             gltf::texture::WrappingMode::ClampToEdge => maligog::SamplerAddressMode::CLAMP_TO_EDGE,
             gltf::texture::WrappingMode::MirroredRepeat => {
@@ -229,10 +245,15 @@ impl Scene {
         let (doc, gltf_buffers, gltf_images) = gltf::import(path).unwrap();
         let scene = doc.default_scene().unwrap();
 
+        log::debug!("loading buffers");
         let buffers = create_device_buffers(device, &gltf_buffers);
+        log::debug!("loading images");
         let images = create_device_images(device, &gltf_images);
+        log::debug!("loading meshes");
         let blases = create_blases(device, doc.meshes(), &buffers);
+        log::debug!("loading samplers");
         let samplers = create_samlers(device, doc.samplers());
+
         let mut blas_instances = scene
             .nodes()
             .map(|n| {
@@ -258,6 +279,7 @@ impl Scene {
             buffers,
             images,
             tlas,
+            samplers,
         }
     }
 
