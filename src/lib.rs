@@ -1,4 +1,3 @@
-#![feature(inline_const)]
 #![feature(const_type_id)]
 
 pub use gltf;
@@ -15,6 +14,7 @@ pub struct Scene {
     images: Vec<maligog::Image>,
     tlas: maligog::TopAccelerationStructure,
     samplers: Vec<maligog::Sampler>,
+    doc: gltf::Document,
 }
 
 fn convert_image_to_bgra8(
@@ -280,11 +280,16 @@ impl Scene {
             images,
             tlas,
             samplers,
+            doc,
         }
     }
 
     pub fn tlas(&self) -> &maligog::TopAccelerationStructure {
         &self.tlas
+    }
+
+    pub fn doc(&self) -> &gltf::Document {
+        &self.doc
     }
 }
 
