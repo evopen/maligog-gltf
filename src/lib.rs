@@ -62,7 +62,9 @@ fn create_device_buffers(
                 Some("gltf buffer"),
                 data.as_ref(),
                 maligog::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
-                    | maligog::BufferUsageFlags::STORAGE_BUFFER,
+                    | maligog::BufferUsageFlags::STORAGE_BUFFER
+                    | maligog::BufferUsageFlags::VERTEX_BUFFER
+                    | maligog::BufferUsageFlags::INDEX_BUFFER,
                 maligog::MemoryLocation::GpuOnly,
             )
         })
