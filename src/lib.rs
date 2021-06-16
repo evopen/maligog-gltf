@@ -1,4 +1,4 @@
-#![feature(const_type_id)]
+mod util;
 
 pub use gltf;
 
@@ -15,40 +15,6 @@ pub struct Scene {
     tlas: maligog::TopAccelerationStructure,
     samplers: Vec<maligog::Sampler>,
     doc: gltf::Document,
-}
-
-fn convert_image_to_bgra8(
-    image: &gltf::image::Data,
-) -> image::ImageBuffer<image::Bgra<u8>, Vec<u8>> {
-    use image::DynamicImage;
-    let bgra8;
-
-    match image.format {
-        gltf::image::Format::R8G8B8 => {
-            let img =
-                image::RgbImage::from_vec(image.width, image.height, image.pixels.clone()).unwrap();
-            bgra8 = DynamicImage::ImageRgb8(img).into_bgra8();
-        }
-        gltf::image::Format::R8G8B8A8 => {
-            let img = image::ImageBuffer::from_vec(image.width, image.height, image.pixels.clone())
-                .unwrap();
-            bgra8 = DynamicImage::ImageRgba8(img).into_bgra8();
-        }
-        gltf::image::Format::B8G8R8 => {
-            let img = image::ImageBuffer::from_vec(image.width, image.height, image.pixels.clone())
-                .unwrap();
-            bgra8 = DynamicImage::ImageBgr8(img).into_bgra8();
-        }
-        gltf::image::Format::B8G8R8A8 => {
-            let img = image::ImageBuffer::from_vec(image.width, image.height, image.pixels.clone())
-                .unwrap();
-            bgra8 = DynamicImage::ImageBgra8(img).into_bgra8();
-        }
-        _ => {
-            unimplemented!()
-        }
-    };
-    bgra8
 }
 
 fn create_device_buffers(
@@ -79,7 +45,7 @@ fn create_device_images(
         .iter()
         .map(|image| {
             let mut format = maligog::Format::B8G8R8A8_UNORM;
-            let bgra8 = convert_image_to_bgra8(image);
+            let bgra8 = util::convert_image_to_bgra8(image);
             device.create_image_init(
                 Some("gltf texture"),
                 format,
@@ -91,36 +57,6 @@ fn create_device_images(
             )
         })
         .collect::<Vec<_>>()
-}
-
-fn process_node(
-    device: &maligog::Device,
-    node: &gltf::Node,
-    blases: &[maligog::BottomAccelerationStructure],
-) -> Vec<maligog::BLASInstance> {
-    let mut instances = Vec::new();
-    if let Some(mesh) = node.mesh() {
-        instances.push(maligog::BLASInstance::new(
-            &device,
-            &blases.get(mesh.index()).unwrap(),
-            &glam::Mat4::from_cols_array_2d(&node.transform().matrix()),
-            0,
-        ));
-    }
-    instances.extend(
-        node.children()
-            .map(|n| process_node(&device, &n, blases))
-            .flatten()
-            .map(|mut i| {
-                i.set_transform(
-                    &i.transform()
-                        .mul_mat4(&glam::Mat4::from_cols_array_2d(&node.transform().matrix())),
-                );
-                i
-            })
-            .collect::<Vec<_>>(),
-    );
-    instances
 }
 
 fn create_samlers(
@@ -238,6 +174,65 @@ fn create_blases(
     blases
 }
 
+fn process_node(
+    device: &maligog::Device,
+    node: &gltf::Node,
+    blases: &[maligog::BottomAccelerationStructure],
+    instance_offset: &mut u32,
+    parent_tranform: &glam::Mat4,
+) -> Vec<maligog::BLASInstance> {
+    let node_relative_transform = util::gltf_to_glam_tranform(&node.transform());
+    let node_absolute_transform: glam::Mat4 = node_relative_transform * *parent_tranform;
+    let mut instances = Vec::new();
+    if let Some(mesh) = node.mesh() {
+        instances.push(maligog::BLASInstance::new(
+            &device,
+            &blases.get(mesh.index()).unwrap(),
+            &node_absolute_transform,
+            *instance_offset,
+        ));
+        *instance_offset += mesh.primitives().len() as u32;
+    }
+    instances.extend(
+        node.children()
+            .map(|n| {
+                process_node(
+                    &device,
+                    &n,
+                    blases,
+                    instance_offset,
+                    &node_absolute_transform,
+                )
+            })
+            .flatten()
+            .collect::<Vec<_>>(),
+    );
+    instances
+}
+
+fn create_blas_instances(
+    device: &maligog::Device,
+    scene: &gltf::Scene,
+    blases: &[maligog::BottomAccelerationStructure],
+) -> Vec<maligog::BLASInstance> {
+    let mut instance_offset = 0;
+    let instances = scene
+        .nodes()
+        .map(|node| {
+            let root_node_transform = util::gltf_to_glam_tranform(&node.transform());
+            process_node(
+                device,
+                &node,
+                blases,
+                &mut instance_offset,
+                &root_node_transform,
+            )
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+    instances
+}
+
 impl Scene {
     pub fn from_file<I: AsRef<Path>>(
         name: Option<&str>,
@@ -256,20 +251,8 @@ impl Scene {
         log::debug!("loading samplers");
         let samplers = create_samlers(device, doc.samplers());
 
-        let mut blas_instances = scene
-            .nodes()
-            .map(|n| {
-                let mut instances = process_node(device, &n, &blases);
-                for i in instances.as_mut_slice() {
-                    i.set_transform(
-                        &i.transform()
-                            .mul_mat4(&glam::Mat4::from_cols_array_2d(&n.transform().matrix())),
-                    );
-                }
-                instances
-            })
-            .flatten()
-            .collect::<Vec<_>>();
+        let mut blas_instances =
+            create_blas_instances(device, doc.default_scene().as_ref().unwrap(), &blases);
         for instance in blas_instances.as_mut_slice() {
             instance.build();
         }
@@ -305,7 +288,7 @@ fn test_general() {
     let entry = maligog::Entry::new().unwrap();
     let mut required_extensions = maligog::Surface::required_extensions();
     required_extensions.push(maligog::name::instance::Extension::ExtDebugUtils);
-    let instance = entry.create_instance(&[], &&required_extensions);
+    let instance = entry.create_instance(&[], &required_extensions);
     let pdevice = instance
         .enumerate_physical_device()
         .first()
