@@ -182,7 +182,7 @@ fn process_node(
     parent_tranform: &glam::Mat4,
 ) -> Vec<maligog::BLASInstance> {
     let node_relative_transform = util::gltf_to_glam_tranform(&node.transform());
-    let node_absolute_transform: glam::Mat4 = node_relative_transform * *parent_tranform;
+    let node_absolute_transform: glam::Mat4 = *parent_tranform * node_relative_transform;
     let mut instances = Vec::new();
     if let Some(mesh) = node.mesh() {
         instances.push(maligog::BLASInstance::new(
