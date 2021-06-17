@@ -10,11 +10,11 @@ use image::buffer::ConvertBuffer;
 use std::any::{Any, TypeId};
 
 pub struct Scene {
-    buffers: Vec<maligog::Buffer>,
     images: Vec<maligog::Image>,
     tlas: maligog::TopAccelerationStructure,
     samplers: Vec<maligog::Sampler>,
     doc: gltf::Document,
+    mesh_data: MeshData,
 }
 
 fn create_device_buffers(
@@ -112,68 +112,6 @@ fn create_samlers(
     samplers
 }
 
-fn create_blases(
-    device: &maligog::Device,
-    gltf_meshes: gltf::iter::Meshes,
-    buffers: &[maligog::Buffer],
-) -> Vec<maligog::BottomAccelerationStructure> {
-    let mut blases = Vec::new();
-    for mesh in gltf_meshes {
-        let geometries: Vec<maligog::TriangleGeometry> = mesh
-            .primitives()
-            .map(|p| {
-                let index_accessor = p.indices().unwrap();
-                let (_, vertex_accessor) = p
-                    .attributes()
-                    .find(|(semantic, _)| semantic.eq(&gltf::Semantic::Positions))
-                    .unwrap();
-                let index_buffer_view = maligog::IndexBufferView {
-                    buffer_view: maligog::BufferView {
-                        buffer: buffers[index_accessor.view().unwrap().buffer().index()].clone(),
-                        offset: (index_accessor.offset() + index_accessor.view().unwrap().offset())
-                            as u64,
-                    },
-                    index_type: match index_accessor.data_type() {
-                        gltf::accessor::DataType::U16 => maligog::IndexType::UINT16,
-                        gltf::accessor::DataType::U32 => maligog::IndexType::UINT32,
-                        _ => {
-                            unimplemented!()
-                        }
-                    },
-                    count: index_accessor.count() as u32,
-                };
-                let vertex_buffer_view = maligog::VertexBufferView {
-                    buffer_view: maligog::BufferView {
-                        buffer: buffers[vertex_accessor.view().unwrap().buffer().index()].clone(),
-                        offset: (vertex_accessor.offset()
-                            + vertex_accessor.view().unwrap().offset())
-                            as u64,
-                    },
-                    format: match vertex_accessor.data_type() {
-                        gltf::accessor::DataType::U32 => maligog::Format::R32G32B32_UINT,
-                        gltf::accessor::DataType::F32 => maligog::Format::R32G32B32_SFLOAT,
-                        _ => {
-                            unimplemented!()
-                        }
-                    },
-                    stride: match vertex_accessor.dimensions() {
-                        gltf::accessor::Dimensions::Vec3 => std::mem::size_of::<f32>() as u64 * 3,
-                        _ => {
-                            unimplemented!()
-                        }
-                    },
-                    count: vertex_accessor.count() as u32,
-                };
-
-                maligog::TriangleGeometry::new(&index_buffer_view, &vertex_buffer_view, None)
-            })
-            .collect();
-
-        blases.push(device.create_bottom_level_acceleration_structure(mesh.name(), &geometries));
-    }
-    blases
-}
-
 fn process_node(
     device: &maligog::Device,
     node: &gltf::Node,
@@ -233,6 +171,119 @@ fn create_blas_instances(
     instances
 }
 
+struct PrimitiveInfo {
+    index_offset: u64,
+    vertex_offset: u64,
+    index_count: u32,
+    vertex_count: u32,
+}
+
+struct MeshInfo {
+    name: Option<String>,
+    primitive_infos: Vec<PrimitiveInfo>,
+}
+
+struct MeshData {
+    index_buffer: maligog::Buffer,
+    vertex_buffer: maligog::Buffer,
+    mesh_infos: Vec<MeshInfo>,
+}
+
+fn process_meshes(
+    device: &maligog::Device,
+    gltf_meshes: gltf::iter::Meshes,
+    buffers: &[gltf::buffer::Data],
+) -> MeshData {
+    let mut index_data: Vec<u8> = Vec::new();
+    let mut vertex_data: Vec<u8> = Vec::new();
+    let mut mesh_infos: Vec<MeshInfo> = Vec::new();
+    for mesh in gltf_meshes {
+        let mut primitive_infos = Vec::new();
+        for primitive in mesh.primitives() {
+            let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
+            let index_iter = reader.read_indices().unwrap().into_u32();
+            let vertex_iter = reader.read_positions().unwrap();
+            let indices = index_iter.collect::<Vec<_>>();
+            let vertices = vertex_iter.collect::<Vec<_>>();
+            primitive_infos.push(PrimitiveInfo {
+                index_offset: index_data.len() as u64,
+                vertex_offset: vertex_data.len() as u64,
+                index_count: indices.len() as u32,
+                vertex_count: vertices.len() as u32,
+            });
+            index_data.extend_from_slice(&bytemuck::cast_slice(&indices));
+            vertex_data.extend_from_slice(&bytemuck::cast_slice(&vertices));
+        }
+        mesh_infos.push(MeshInfo {
+            name: mesh.name().map(|s| s.to_owned()),
+            primitive_infos,
+        });
+    }
+    let index_buffer = device.create_buffer_init(
+        Some("index buffer"),
+        bytemuck::cast_slice(&index_data),
+        maligog::BufferUsageFlags::INDEX_BUFFER
+            | maligog::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+            | maligog::BufferUsageFlags::STORAGE_BUFFER,
+        maligog::MemoryLocation::GpuOnly,
+    );
+    let vertex_buffer = device.create_buffer_init(
+        Some("vertex buffer"),
+        bytemuck::cast_slice(&vertex_data),
+        maligog::BufferUsageFlags::VERTEX_BUFFER
+            | maligog::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+            | maligog::BufferUsageFlags::STORAGE_BUFFER,
+        maligog::MemoryLocation::GpuOnly,
+    );
+
+    MeshData {
+        index_buffer,
+        vertex_buffer,
+        mesh_infos,
+    }
+}
+
+fn create_blases(
+    device: &maligog::Device,
+    mesh_data: &MeshData,
+) -> Vec<maligog::BottomAccelerationStructure> {
+    let mut blases = Vec::new();
+    for mesh in &mesh_data.mesh_infos {
+        let mut triangle_geometries = Vec::new();
+        for primitive in &mesh.primitive_infos {
+            let index_buffer_view = maligog::IndexBufferView {
+                buffer_view: maligog::BufferView {
+                    buffer: mesh_data.index_buffer.clone(),
+                    offset: primitive.index_offset,
+                },
+                index_type: maligog::IndexType::UINT32,
+                count: primitive.index_count,
+            };
+            let vertex_buffer_view = maligog::VertexBufferView {
+                buffer_view: maligog::BufferView {
+                    buffer: mesh_data.vertex_buffer.clone(),
+                    offset: primitive.vertex_offset,
+                },
+                format: maligog::Format::R32G32B32_SFLOAT,
+                stride: std::mem::size_of::<f32>() as u64 * 3,
+                count: primitive.vertex_count,
+            };
+
+            triangle_geometries.push(maligog::TriangleGeometry::new(
+                &index_buffer_view,
+                &vertex_buffer_view,
+                None,
+            ))
+        }
+        blases.push(device.create_bottom_level_acceleration_structure(
+            mesh.name.as_ref().map(|s| s.as_str()),
+            &triangle_geometries,
+        ));
+    }
+
+    blases
+}
+
 impl Scene {
     pub fn from_file<I: AsRef<Path>>(
         name: Option<&str>,
@@ -242,12 +293,12 @@ impl Scene {
         let (doc, gltf_buffers, gltf_images) = gltf::import(path).unwrap();
         let scene = doc.default_scene().unwrap();
 
-        log::debug!("loading buffers");
-        let buffers = create_device_buffers(device, &gltf_buffers);
+        let mesh_data = process_meshes(device, doc.meshes(), &gltf_buffers);
+
         log::debug!("loading images");
         let images = create_device_images(device, &gltf_images);
         log::debug!("loading meshes");
-        let blases = create_blases(device, doc.meshes(), &buffers);
+        let blases = create_blases(device, &mesh_data);
         log::debug!("loading samplers");
         let samplers = create_samlers(device, doc.samplers());
 
@@ -261,7 +312,7 @@ impl Scene {
             device.create_top_level_acceleration_structure(scene.name(), &[instance_geometry]);
 
         Self {
-            buffers,
+            mesh_data,
             images,
             tlas,
             samplers,
@@ -282,7 +333,7 @@ impl Scene {
 fn test_general() {
     dotenv::dotenv().ok();
     env_logger::builder()
-        .filter_level(log::LevelFilter::Trace)
+        .filter_level(log::LevelFilter::Info)
         .try_init()
         .ok();
     let entry = maligog::Entry::new().unwrap();
@@ -311,7 +362,7 @@ fn test_general() {
         "2.0/Buggy/glTF/Buggy.gltf",
     ];
     for case in gltf_test_cases {
-        log::debug!("loading {}", case);
+        log::info!("loading {}", case);
         let gltf_path =
             std::path::PathBuf::from(std::env::var("GLTF_SAMPLE_PATH").unwrap()).join(case);
         let scene = Scene::from_file(Some("test scene"), &device, gltf_path);
