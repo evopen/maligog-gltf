@@ -128,6 +128,7 @@ fn process_node(
             &blases.get(mesh.index()).unwrap(),
             &node_absolute_transform,
             *instance_offset,
+            mesh.index() as u32,
         ));
         *instance_offset += mesh.primitives().len() as u32;
     }
