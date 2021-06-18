@@ -10,7 +10,7 @@ maligog = { path = "../maligog" }
 gltf = "0.16"
 log = "0.4"
 image = "0.23"
-bytemuck = "1.5"
+bytemuck = "1.7"
 glam = "0.16"
 
 
