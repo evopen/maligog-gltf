@@ -182,7 +182,6 @@ struct PrimitiveInfo {
 }
 
 struct MeshInfo {
-    name: Option<String>,
     primitive_infos: Vec<PrimitiveInfo>,
 }
 
@@ -217,10 +216,7 @@ fn process_meshes(
             index_data.extend_from_slice(&bytemuck::cast_slice(&indices));
             vertex_data.extend_from_slice(&bytemuck::cast_slice(&vertices));
         }
-        mesh_infos.push(MeshInfo {
-            name: mesh.name().map(|s| s.to_owned()),
-            primitive_infos,
-        });
+        mesh_infos.push(MeshInfo { primitive_infos });
     }
     let index_buffer = device.create_buffer_init(
         Some("index buffer"),
@@ -278,10 +274,7 @@ fn create_blases(
                 None,
             ))
         }
-        blases.push(device.create_bottom_level_acceleration_structure(
-            mesh.name.as_ref().map(|s| s.as_str()),
-            &triangle_geometries,
-        ));
+        blases.push(device.create_bottom_level_acceleration_structure(None, &triangle_geometries));
     }
 
     blases
@@ -329,6 +322,20 @@ impl Scene {
 
     pub fn doc(&self) -> &gltf::Document {
         &self.doc
+    }
+
+    pub fn index_buffer(&self) -> maligog::BufferView {
+        maligog::BufferView {
+            buffer: self.mesh_data.index_buffer.clone(),
+            offset: 0,
+        }
+    }
+
+    pub fn vertex_buffer(&self) -> maligog::BufferView {
+        maligog::BufferView {
+            buffer: self.mesh_data.vertex_buffer.clone(),
+            offset: 0,
+        }
     }
 }
 
