@@ -11,13 +11,44 @@ use image::buffer::ConvertBuffer;
 
 use std::any::{Any, TypeId};
 
+#[derive(Clone)]
+pub struct PrimitiveInfo {
+    pub index_offset: u64,
+    pub vertex_offset: u64,
+    pub index_count: u32,
+    pub vertex_count: u32,
+}
+
+#[derive(Clone)]
+pub struct MeshInfo {
+    pub name: Option<String>,
+    pub primitive_infos: Vec<PrimitiveInfo>,
+}
+
+#[derive(Clone)]
+struct MeshData {
+    index_buffer: maligog::Buffer,
+    vertex_buffer: maligog::Buffer,
+    mesh_infos: Vec<MeshInfo>,
+}
+
+#[derive(Clone)]
 pub struct Scene {
     images: Vec<maligog::Image>,
     tlas: maligog::TopAccelerationStructure,
     samplers: Vec<maligog::Sampler>,
     doc: gltf::Document,
     mesh_data: MeshData,
+    load_time: std::time::Instant,
 }
+
+impl PartialEq for Scene {
+    fn eq(&self, other: &Self) -> bool {
+        self.load_time == other.load_time
+    }
+}
+
+impl Eq for Scene {}
 
 fn create_device_buffers(
     device: &maligog::Device,
@@ -174,23 +205,6 @@ fn create_blas_instances(
     instances
 }
 
-struct PrimitiveInfo {
-    index_offset: u64,
-    vertex_offset: u64,
-    index_count: u32,
-    vertex_count: u32,
-}
-
-struct MeshInfo {
-    primitive_infos: Vec<PrimitiveInfo>,
-}
-
-struct MeshData {
-    index_buffer: maligog::Buffer,
-    vertex_buffer: maligog::Buffer,
-    mesh_infos: Vec<MeshInfo>,
-}
-
 fn process_meshes(
     device: &maligog::Device,
     gltf_meshes: gltf::iter::Meshes,
@@ -216,7 +230,10 @@ fn process_meshes(
             index_data.extend_from_slice(&bytemuck::cast_slice(&indices));
             vertex_data.extend_from_slice(&bytemuck::cast_slice(&vertices));
         }
-        mesh_infos.push(MeshInfo { primitive_infos });
+        mesh_infos.push(MeshInfo {
+            name: mesh.name().map(|s| s.to_owned()),
+            primitive_infos,
+        });
     }
     let index_buffer = device.create_buffer_init(
         Some("index buffer"),
@@ -306,6 +323,7 @@ impl Scene {
         let instance_geometry = maligog::InstanceGeometry::new(&device, blas_instances.as_slice());
         let tlas =
             device.create_top_level_acceleration_structure(scene.name(), &[instance_geometry]);
+        let load_time = std::time::Instant::now();
 
         Self {
             mesh_data,
@@ -313,6 +331,7 @@ impl Scene {
             tlas,
             samplers,
             doc,
+            load_time,
         }
     }
 
@@ -336,6 +355,10 @@ impl Scene {
             buffer: self.mesh_data.vertex_buffer.clone(),
             offset: 0,
         }
+    }
+
+    pub fn mesh_infos(&self) -> &[MeshInfo] {
+        &self.mesh_data.mesh_infos
     }
 }
 
