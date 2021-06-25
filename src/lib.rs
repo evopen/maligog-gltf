@@ -33,12 +33,18 @@ struct MeshData {
 }
 
 #[derive(Clone)]
+pub struct InstanceData {
+    transform_buffer: maligog::Buffer,
+}
+
+#[derive(Clone)]
 pub struct Scene {
     images: Vec<maligog::Image>,
     tlas: maligog::TopAccelerationStructure,
     samplers: Vec<maligog::Sampler>,
     doc: gltf::Document,
     mesh_data: MeshData,
+    instance_data: InstanceData,
     load_time: std::time::Instant,
 }
 
@@ -324,6 +330,18 @@ impl Scene {
             device.create_top_level_acceleration_structure(scene.name(), &[instance_geometry]);
         let load_time = std::time::Instant::now();
 
+        let mut transforms = Vec::with_capacity(blas_instances.len());
+        for instance in blas_instances {
+            transforms.push(instance.transform().to_owned());
+        }
+        let transform_buffer = device.create_buffer_init(
+            Some("transform buffer"),
+            bytemuck::cast_slice(&transforms),
+            maligog::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+                | maligog::BufferUsageFlags::STORAGE_BUFFER,
+            maligog::MemoryLocation::GpuOnly,
+        );
+
         Self {
             mesh_data,
             images,
@@ -331,6 +349,7 @@ impl Scene {
             samplers,
             doc,
             load_time,
+            instance_data: InstanceData { transform_buffer },
         }
     }
 
@@ -358,6 +377,13 @@ impl Scene {
 
     pub fn mesh_infos(&self) -> &[MeshInfo] {
         &self.mesh_data.mesh_infos
+    }
+
+    pub fn transform_buffer(&self) -> maligog::BufferView {
+        maligog::BufferView {
+            buffer: self.instance_data.transform_buffer.clone(),
+            offset: 0,
+        }
     }
 }
 
