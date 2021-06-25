@@ -191,13 +191,12 @@ fn create_blas_instances(
     let instances = scene
         .nodes()
         .map(|node| {
-            let root_node_transform = util::gltf_to_glam_tranform(&node.transform());
             process_node(
                 device,
                 &node,
                 blases,
                 &mut instance_offset,
-                &root_node_transform,
+                &glam::Mat4::IDENTITY,
             )
         })
         .flatten()
