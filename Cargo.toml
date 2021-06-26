@@ -10,7 +10,7 @@ maligog = { path = "../maligog" }
 gltf = "0.16"
 log = "0.4"
 image = "0.23"
-bytemuck = "1.7"
+bytemuck = { version = "1.7", features = ["derive"] }
 glam = { version = "0.16", features = ["bytemuck"] }
 
 

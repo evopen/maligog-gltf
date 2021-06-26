@@ -2,6 +2,7 @@
 
 mod util;
 
+use bytemuck::{Pod, Zeroable};
 pub use gltf;
 
 use std::convert::TryInto;
@@ -11,12 +12,19 @@ use image::buffer::ConvertBuffer;
 
 use std::any::{Any, TypeId};
 
-#[derive(Clone)]
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 pub struct PrimitiveInfo {
     pub index_offset: u64,
     pub vertex_offset: u64,
-    pub index_count: u32,
-    pub vertex_count: u32,
+    pub index_count: u64,
+    pub vertex_count: u64,
+    pub material_index: u64,
+}
+
+#[derive(Clone)]
+pub struct MaterialInfo {
+    base_color_factor: glam::Vec4,
 }
 
 #[derive(Clone)]
@@ -46,6 +54,7 @@ pub struct Scene {
     mesh_data: MeshData,
     instance_data: InstanceData,
     load_time: std::time::Instant,
+    material_infos: Vec<MaterialInfo>,
 }
 
 impl PartialEq for Scene {
@@ -226,11 +235,16 @@ fn process_meshes(
             let vertex_iter = reader.read_positions().unwrap();
             let indices = index_iter.collect::<Vec<_>>();
             let vertices = vertex_iter.collect::<Vec<_>>();
+            let material_index = match primitive.material().index() {
+                Some(i) => i as u64 + 1,
+                None => 0,
+            };
             primitive_infos.push(PrimitiveInfo {
                 index_offset: index_data.len() as u64,
                 vertex_offset: vertex_data.len() as u64,
-                index_count: indices.len() as u32,
-                vertex_count: vertices.len() as u32,
+                index_count: indices.len() as u64,
+                vertex_count: vertices.len() as u64,
+                material_index,
             });
             index_data.extend_from_slice(&bytemuck::cast_slice(&indices));
             vertex_data.extend_from_slice(&bytemuck::cast_slice(&vertices));
@@ -278,7 +292,7 @@ fn create_blases(
                     offset: primitive.index_offset,
                 },
                 index_type: maligog::IndexType::UINT32,
-                count: primitive.index_count,
+                count: primitive.index_count as u32,
             };
             let vertex_buffer_view = maligog::VertexBufferView {
                 buffer_view: maligog::BufferView {
@@ -287,7 +301,7 @@ fn create_blases(
                 },
                 format: maligog::Format::R32G32B32_SFLOAT,
                 stride: std::mem::size_of::<f32>() as u64 * 3,
-                count: primitive.vertex_count,
+                count: primitive.vertex_count as u32,
             };
 
             triangle_geometries.push(maligog::TriangleGeometry::new(
@@ -300,6 +314,22 @@ fn create_blases(
     }
 
     blases
+}
+
+fn gather_material_infos(gltf_materials: gltf::iter::Materials) -> Vec<MaterialInfo> {
+    let mut material_infos = Vec::new();
+    material_infos.push(MaterialInfo {
+        base_color_factor: glam::Vec4::new(1.0, 1.0, 1.0, 1.0),
+    });
+    for m in gltf_materials {
+        let metallic_roughness = m.pbr_metallic_roughness();
+        material_infos.push(MaterialInfo {
+            base_color_factor: glam::Vec4::from_slice(&metallic_roughness.base_color_factor()),
+        });
+        // let a = metallic_roughness.base_color_texture().unwrap();
+        // a.texture()./
+    }
+    material_infos
 }
 
 impl Scene {
@@ -342,6 +372,8 @@ impl Scene {
             maligog::MemoryLocation::GpuOnly,
         );
 
+        let material_infos = gather_material_infos(doc.materials());
+
         Self {
             mesh_data,
             images,
@@ -350,6 +382,7 @@ impl Scene {
             doc,
             load_time,
             instance_data: InstanceData { transform_buffer },
+            material_infos,
         }
     }
 
@@ -384,6 +417,14 @@ impl Scene {
             buffer: self.instance_data.transform_buffer.clone(),
             offset: 0,
         }
+    }
+
+    pub fn images(&self) -> &[maligog::Image] {
+        &self.images
+    }
+
+    pub fn samplers(&self) -> &[maligog::Sampler] {
+        &self.samplers
     }
 }
 
