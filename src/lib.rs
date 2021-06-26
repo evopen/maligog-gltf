@@ -22,7 +22,8 @@ pub struct PrimitiveInfo {
     pub material_index: u64,
 }
 
-#[derive(Clone)]
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 pub struct MaterialInfo {
     base_color_factor: glam::Vec4,
 }
@@ -410,6 +411,10 @@ impl Scene {
 
     pub fn mesh_infos(&self) -> &[MeshInfo] {
         &self.mesh_data.mesh_infos
+    }
+
+    pub fn material_infos(&self) -> &[MaterialInfo] {
+        &self.material_infos
     }
 
     pub fn transform_buffer(&self) -> maligog::BufferView {
