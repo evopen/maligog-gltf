@@ -25,9 +25,16 @@ pub struct PrimitiveInfo {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Clone, Copy)]
+pub struct Texture {
+    pub sampler_index: u32,
+    pub image_index: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct MaterialInfo {
-    base_color_factor: glam::Vec4,
+    pub base_color_factor: glam::Vec4,
+    pub base_color_texture: Option<Texture>,
 }
 
 #[derive(Clone)]
@@ -116,7 +123,14 @@ fn create_samlers(
     device: &maligog::Device,
     gltf_samplers: gltf::iter::Samplers,
 ) -> Vec<maligog::Sampler> {
-    let mut samplers = vec![];
+    let mut samplers = vec![device.create_sampler(
+        // default sampler
+        Some("default sampler"),
+        maligog::Filter::LINEAR,
+        maligog::Filter::LINEAR,
+        maligog::SamplerAddressMode::CLAMP_TO_EDGE,
+        maligog::SamplerAddressMode::CLAMP_TO_EDGE,
+    )];
     for sampler in gltf_samplers {
         let mag_filter = if let Some(mag_filter) = sampler.mag_filter() {
             match mag_filter {
@@ -369,11 +383,20 @@ fn gather_material_infos(gltf_materials: gltf::iter::Materials) -> Vec<MaterialI
     let mut material_infos = Vec::new();
     material_infos.push(MaterialInfo {
         base_color_factor: glam::Vec4::new(1.0, 1.0, 1.0, 1.0),
+        base_color_texture: None,
     });
     for m in gltf_materials {
         let metallic_roughness = m.pbr_metallic_roughness();
+        let base_color_texture = metallic_roughness.base_color_texture().map(|t| Texture {
+            sampler_index: match t.texture().sampler().index() {
+                Some(i) => i as u32 + 1,
+                None => 0,
+            },
+            image_index: t.texture().source().index() as u32,
+        });
         material_infos.push(MaterialInfo {
             base_color_factor: glam::Vec4::from_slice(&metallic_roughness.base_color_factor()),
+            base_color_texture,
         });
         // let a = metallic_roughness.base_color_texture().unwrap();
         // a.texture()./
