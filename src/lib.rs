@@ -20,6 +20,8 @@ pub struct PrimitiveInfo {
     pub index_count: u64,
     pub vertex_count: u64,
     pub material_index: u64,
+    pub color_offset: u64,
+    pub tex_coord_offset: u64,
 }
 
 #[repr(C)]
@@ -38,6 +40,8 @@ pub struct MeshInfo {
 struct MeshData {
     index_buffer: maligog::Buffer,
     vertex_buffer: maligog::Buffer,
+    color_buffer: Option<maligog::Buffer>,
+    tex_coord_buffer: Option<maligog::Buffer>,
     mesh_infos: Vec<MeshInfo>,
 }
 
@@ -227,6 +231,8 @@ fn process_meshes(
 ) -> MeshData {
     let mut index_data: Vec<u8> = Vec::new();
     let mut vertex_data: Vec<u8> = Vec::new();
+    let mut color_data: Vec<u8> = Vec::new();
+    let mut tex_coord_data: Vec<u8> = Vec::new();
     let mut mesh_infos: Vec<MeshInfo> = Vec::new();
     for mesh in gltf_meshes {
         let mut primitive_infos = Vec::new();
@@ -236,6 +242,14 @@ fn process_meshes(
             let vertex_iter = reader.read_positions().unwrap();
             let indices = index_iter.collect::<Vec<_>>();
             let vertices = vertex_iter.collect::<Vec<_>>();
+            let colors = match reader.read_colors(0).map(|i| i.into_rgba_f32()) {
+                Some(iter) => iter.collect::<Vec<_>>(),
+                None => vec![],
+            };
+            let tex_coords = match reader.read_tex_coords(0).map(|i| i.into_f32()) {
+                Some(iter) => iter.collect::<Vec<_>>(),
+                None => vec![],
+            };
             let material_index = match primitive.material().index() {
                 Some(i) => i as u64 + 1,
                 None => 0,
@@ -246,9 +260,13 @@ fn process_meshes(
                 index_count: indices.len() as u64,
                 vertex_count: vertices.len() as u64,
                 material_index,
+                color_offset: color_data.len() as u64,
+                tex_coord_offset: tex_coord_data.len() as u64,
             });
             index_data.extend_from_slice(&bytemuck::cast_slice(&indices));
             vertex_data.extend_from_slice(&bytemuck::cast_slice(&vertices));
+            color_data.extend_from_slice(&bytemuck::cast_slice(&colors));
+            tex_coord_data.extend_from_slice(&bytemuck::cast_slice(&tex_coords));
         }
         mesh_infos.push(MeshInfo {
             name: mesh.name().map(|s| s.to_owned()),
@@ -271,11 +289,33 @@ fn process_meshes(
             | maligog::BufferUsageFlags::STORAGE_BUFFER,
         maligog::MemoryLocation::GpuOnly,
     );
+    let color_buffer = match color_data.len() != 0 {
+        true => Some(device.create_buffer_init(
+            Some("vertex color buffer"),
+            bytemuck::cast_slice(&color_data),
+            maligog::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+                | maligog::BufferUsageFlags::STORAGE_BUFFER,
+            maligog::MemoryLocation::GpuOnly,
+        )),
+        false => None,
+    };
+    let tex_coord_buffer = match tex_coord_data.len() != 0 {
+        true => Some(device.create_buffer_init(
+            Some("tex coord buffer"),
+            bytemuck::cast_slice(&tex_coord_data),
+            maligog::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+                | maligog::BufferUsageFlags::STORAGE_BUFFER,
+            maligog::MemoryLocation::GpuOnly,
+        )),
+        false => None,
+    };
 
     MeshData {
         index_buffer,
         vertex_buffer,
         mesh_infos,
+        color_buffer,
+        tex_coord_buffer,
     }
 }
 
@@ -407,6 +447,26 @@ impl Scene {
             buffer: self.mesh_data.vertex_buffer.clone(),
             offset: 0,
         }
+    }
+
+    pub fn color_buffer(&self) -> Option<maligog::BufferView> {
+        self.mesh_data
+            .color_buffer
+            .as_ref()
+            .map(|b| maligog::BufferView {
+                buffer: b.clone(),
+                offset: 0,
+            })
+    }
+
+    pub fn tex_coord_buffer(&self) -> Option<maligog::BufferView> {
+        self.mesh_data
+            .tex_coord_buffer
+            .as_ref()
+            .map(|b| maligog::BufferView {
+                buffer: b.clone(),
+                offset: 0,
+            })
     }
 
     pub fn mesh_infos(&self) -> &[MeshInfo] {
