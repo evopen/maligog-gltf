@@ -13,15 +13,15 @@ use image::buffer::ConvertBuffer;
 use std::any::{Any, TypeId};
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Clone, Copy)]
 pub struct PrimitiveInfo {
     pub index_offset: u64,
     pub vertex_offset: u64,
     pub index_count: u64,
     pub vertex_count: u64,
     pub material_index: u64,
-    pub color_offset: u64,
-    pub tex_coord_offset: u64,
+    pub color_offset: Option<u64>,
+    pub tex_coord_offset: Option<u64>,
 }
 
 #[repr(C)]
@@ -242,6 +242,8 @@ fn process_meshes(
             let vertex_iter = reader.read_positions().unwrap();
             let indices = index_iter.collect::<Vec<_>>();
             let vertices = vertex_iter.collect::<Vec<_>>();
+            let has_colors = reader.read_colors(0).is_some();
+            let has_tex_coords = reader.read_tex_coords(0).is_some();
             let colors = match reader.read_colors(0).map(|i| i.into_rgba_f32()) {
                 Some(iter) => iter.collect::<Vec<_>>(),
                 None => vec![],
@@ -260,8 +262,14 @@ fn process_meshes(
                 index_count: indices.len() as u64,
                 vertex_count: vertices.len() as u64,
                 material_index,
-                color_offset: color_data.len() as u64,
-                tex_coord_offset: tex_coord_data.len() as u64,
+                color_offset: match has_colors {
+                    true => Some(color_data.len() as u64),
+                    false => None,
+                },
+                tex_coord_offset: match has_tex_coords {
+                    true => Some(tex_coord_data.len() as u64),
+                    false => None,
+                },
             });
             index_data.extend_from_slice(&bytemuck::cast_slice(&indices));
             vertex_data.extend_from_slice(&bytemuck::cast_slice(&vertices));
