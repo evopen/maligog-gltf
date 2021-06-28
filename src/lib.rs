@@ -35,6 +35,9 @@ pub struct Texture {
 pub struct MaterialInfo {
     pub base_color_factor: glam::Vec4,
     pub base_color_texture: Option<Texture>,
+    pub metallic_roughness_texture: Option<Texture>,
+    metallic_factor: f32,
+    roughness_factor: f32,
 }
 
 #[derive(Clone)]
@@ -384,9 +387,13 @@ fn gather_material_infos(gltf_materials: gltf::iter::Materials) -> Vec<MaterialI
     material_infos.push(MaterialInfo {
         base_color_factor: glam::Vec4::new(1.0, 1.0, 1.0, 1.0),
         base_color_texture: None,
+        metallic_roughness_texture: None,
+        metallic_factor: 1.0,
+        roughness_factor: 1.0,
     });
     for m in gltf_materials {
         let metallic_roughness = m.pbr_metallic_roughness();
+
         let base_color_texture = metallic_roughness.base_color_texture().map(|t| Texture {
             sampler_index: match t.texture().sampler().index() {
                 Some(i) => i as u32 + 1,
@@ -394,12 +401,25 @@ fn gather_material_infos(gltf_materials: gltf::iter::Materials) -> Vec<MaterialI
             },
             image_index: t.texture().source().index() as u32,
         });
+        let metallic_roughness_texture =
+            metallic_roughness
+                .metallic_roughness_texture()
+                .map(|t| Texture {
+                    sampler_index: match t.texture().sampler().index() {
+                        Some(i) => i as u32 + 1,
+                        None => 0,
+                    },
+                    image_index: t.texture().source().index() as u32,
+                });
+        let metallic_factor = metallic_roughness.metallic_factor();
+        let roughness_factor = metallic_roughness.roughness_factor();
         material_infos.push(MaterialInfo {
             base_color_factor: glam::Vec4::from_slice(&metallic_roughness.base_color_factor()),
             base_color_texture,
+            metallic_roughness_texture,
+            metallic_factor,
+            roughness_factor,
         });
-        // let a = metallic_roughness.base_color_texture().unwrap();
-        // a.texture()./
     }
     material_infos
 }
